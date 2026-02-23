@@ -8,6 +8,13 @@ Unified local CLI for ChatGPT, Claude, Gemini, Grok, and Perplexity using browse
 go install ./cmd/webai-cli
 ```
 
+### Install via Homebrew (macOS)
+
+```bash
+brew tap kyupark/tap
+brew install webai-cli
+```
+
 If `webai-cli` is not found, add Go bin to your shell profile:
 
 ```bash
