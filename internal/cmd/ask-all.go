@@ -159,6 +159,13 @@ func runAskAll(cmd *cobra.Command, args []string) error {
 					err = p.Ask(ctx, query, opts)
 				}
 			}
+
+			if err != nil && strings.TrimSpace(buf.String()) != "" {
+				if globalCfg.Verbose {
+					fmt.Fprintf(os.Stderr, "[%s] ignoring trailing error after response: %v\n", p.Name(), err)
+				}
+				err = nil
+			}
 			results <- providerResult{
 				name:            p.Name(),
 				model:           model,
