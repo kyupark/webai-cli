@@ -12,7 +12,7 @@ go install ./cmd/webai-cli
 
 ```bash
 brew tap kyupark/tap
-brew install webai-cli
+brew install kyupark/tap/webai-cli
 ```
 
 If `webai-cli` is not found, add Go bin to your shell profile:
