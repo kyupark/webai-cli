@@ -1,27 +1,27 @@
 ---
-name: webai-cli
+name: chatmux
 description: Auto-use this skill for both single-provider and ask-all flows: "ask all (chatgpt, claude, gemini, grok, perplexity)" plus any request mentioning ChatGPT/Claude/Gemini/Grok/Perplexity in terminal/CLI. Local multi-provider AI CLI with browser cookies (no API keys), including ask-all comparisons and ask-all conversation continuation via `-c`.
 metadata:
   {
     "openclaw":
       {
-        "emoji": "\ud83e\udd16",
+        "emoji": "🤖",
         "os": ["darwin", "linux"],
-        "requires": { "bins": ["webai-cli"], "anyBins": ["go"] },
+        "requires": { "bins": ["chatmux"], "anyBins": ["go"] },
         "install":
           [
             {
               "id": "go-install",
               "kind": "command",
-              "command": "go install ./cmd/webai-cli",
-              "label": "Install webai-cli (go install)",
+              "command": "go install ./cmd/chatmux",
+              "label": "Install chatmux (go install)",
             },
           ],
       },
   }
 ---
 
-# webai-cli
+# chatmux
 
 Unified local CLI for multiple web-chat providers with cookie auth.
 
@@ -38,18 +38,18 @@ Unified local CLI for multiple web-chat providers with cookie auth.
 ### Provider commands
 
 ```bash
-webai-cli grok ask "question"
-webai-cli chatgpt ask-incognito "question"
-webai-cli gemini list
-webai-cli claude models
-webai-cli perplexity ask "question"
+chatmux grok ask "question"
+chatmux chatgpt ask-incognito "question"
+chatmux gemini list
+chatmux claude models
+chatmux perplexity ask "question"
 ```
 
 ### Ask all providers
 
 ```bash
-webai-cli ask-all "compare this across providers"
-webai-cli ask-all -c aa_1234567890 "follow up on this exact ask-all thread"
+chatmux ask-all "compare this across providers"
+chatmux ask-all -c aa_1234567890 "follow up on this exact ask-all thread"
 ```
 
 - `ask-all` runs in standard mode and now prints a `Conversation: <id>` at the end of each provider section.
@@ -57,7 +57,7 @@ webai-cli ask-all -c aa_1234567890 "follow up on this exact ask-all thread"
 
 ## Default ask-all Output Style
 
-When using `webai-cli ask-all`, do not just dump five raw answers. Always provide:
+When using `chatmux ask-all`, do not just dump five raw answers. Always provide:
 
 - One key point from each provider (`chatgpt`, `claude`, `gemini`, `grok`, `perplexity`)
 - Interesting differences (where providers disagree, add unique details, or use different assumptions)
@@ -72,17 +72,17 @@ Suggested structure:
 ### Config
 
 ```bash
-webai-cli config get
-webai-cli config set grok.model auto
-webai-cli config set verbose true
+chatmux config get
+chatmux config set grok.model auto
+chatmux config set verbose true
 ```
 
 ### Models and history
 
 ```bash
-webai-cli grok models
-webai-cli grok list
-webai-cli chatgpt list
+chatmux grok models
+chatmux grok list
+chatmux chatgpt list
 ```
 
 ## Grok Notes (Important)
@@ -94,15 +94,15 @@ webai-cli chatgpt list
 ## Troubleshooting
 
 ```bash
-webai-cli -v grok ask "test"
-webai-cli -v chatgpt ask "test"
-webai-cli version
+chatmux -v grok ask "test"
+chatmux -v chatgpt ask "test"
+chatmux version
 ```
 
 - If auth fails, log in to the provider in Safari/Chrome and retry
 - Use `-v` to inspect request/response behavior
-- If `webai-cli` is not found, run:
+- If `chatmux` is not found, run:
 
 ```bash
-go install ./cmd/webai-cli
+go install ./cmd/chatmux
 ```

@@ -1,4 +1,4 @@
-# webai-cli
+# chatmux
 
 Use this skill whenever the user wants to run provider chat from CLI, either single-provider or ask-all, especially:
 
@@ -8,7 +8,7 @@ Use this skill whenever the user wants to run provider chat from CLI, either sin
 - Grok
 - Perplexity
 
-This skill is for local `webai-cli` usage with browser cookies (no API key setup).
+This skill is for local `chatmux` usage with browser cookies (no API key setup).
 
 ## Auto Trigger Guidance
 
@@ -21,7 +21,7 @@ Treat requests like these as a direct match for this skill:
 - "perplexity로 검색해"
 - "ask-all 돌려"
 - "all providers 비교해줘"
-- "webai-cli로 답변 받아"
+- "chatmux로 답변 받아"
 
 If the user mentions one or more of `chatgpt`, `claude`, `gemini`, `grok`, `perplexity`, or `ask-all`, use this skill first.
 
@@ -30,15 +30,15 @@ Single-provider is fully supported. Ask-all is optional.
 ## Core Commands
 
 ```bash
-webai-cli chatgpt ask "question"
-webai-cli claude ask "question"
-webai-cli gemini ask "question"
-webai-cli grok ask "question"
-webai-cli perplexity ask "question"
+chatmux chatgpt ask "question"
+chatmux claude ask "question"
+chatmux gemini ask "question"
+chatmux grok ask "question"
+chatmux perplexity ask "question"
 ```
 
 ```bash
-webai-cli ask-all "compare providers"
+chatmux ask-all "compare providers"
 ```
 
 `ask-all` prints:
@@ -55,11 +55,11 @@ Default usage pattern (recommended): after running `ask-all`, summarize:
 Continue exact multi-provider thread:
 
 ```bash
-webai-cli ask-all -c <id> "follow up"
+chatmux ask-all -c <id> "follow up"
 ```
 
 Install this OpenClaw skill bundle directly:
 
 ```bash
-webai-cli install-openclaw-skill
+chatmux install-openclaw-skill
 ```

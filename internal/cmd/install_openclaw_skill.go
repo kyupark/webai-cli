@@ -13,7 +13,7 @@ import (
 
 var installOpenClawSkillCmd = &cobra.Command{
 	Use:   "install-openclaw-skill",
-	Short: "Install bundled OpenClaw skill to ~/.openclaw/workspace/skills/webai-cli",
+	Short: "Install bundled OpenClaw skill to ~/.openclaw/workspace/skills/chatmux",
 	Args:  cobra.NoArgs,
 	RunE:  runInstallOpenClawSkill,
 }
@@ -28,12 +28,22 @@ func runInstallOpenClawSkill(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("resolve home directory: %w", err)
 	}
 
-	dstDir := filepath.Join(home, ".openclaw", "workspace", "skills", "webai-cli")
+	legacyDir := filepath.Join(home, ".openclaw", "workspace", "skills", "webai-cli")
+	if _, err := os.Stat(legacyDir); err == nil {
+		if err := os.RemoveAll(legacyDir); err != nil {
+			return fmt.Errorf("remove legacy skill directory: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "Removed legacy OpenClaw skill at %s\n", legacyDir)
+	} else if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("check legacy skill directory: %w", err)
+	}
+
+	dstDir := filepath.Join(home, ".openclaw", "workspace", "skills", "chatmux")
 	if err := os.MkdirAll(dstDir, 0o755); err != nil {
 		return fmt.Errorf("create skill directory: %w", err)
 	}
 
-	entries, err := fs.ReadDir(skillbundle.WebAI, "webai-cli")
+	entries, err := fs.ReadDir(skillbundle.Chatmux, "chatmux")
 	if err != nil {
 		return fmt.Errorf("read embedded skill bundle: %w", err)
 	}
@@ -42,7 +52,7 @@ func runInstallOpenClawSkill(cmd *cobra.Command, args []string) error {
 		if entry.IsDir() {
 			continue
 		}
-		data, err := fs.ReadFile(skillbundle.WebAI, filepath.Join("webai-cli", entry.Name()))
+		data, err := fs.ReadFile(skillbundle.Chatmux, filepath.Join("chatmux", entry.Name()))
 		if err != nil {
 			return fmt.Errorf("read embedded file %s: %w", entry.Name(), err)
 		}

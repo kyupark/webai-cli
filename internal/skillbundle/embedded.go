@@ -2,5 +2,5 @@ package skillbundle
 
 import "embed"
 
-//go:embed webai-cli/*
-var WebAI embed.FS
+//go:embed chatmux/*
+var Chatmux embed.FS
