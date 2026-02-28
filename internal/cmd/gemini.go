@@ -25,6 +25,7 @@ var geminiCmd = &cobra.Command{
   <question>      Ask a question (saves to history)
   ask-incognito  Ask a question (no history)
   list           List recent conversations
+	delete         Delete a conversation by ID
 	models         Show available models`,
 	Args: cobra.ArbitraryArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -49,6 +50,13 @@ var geminiListCmd = &cobra.Command{
 	RunE:  runGeminiList,
 }
 
+var geminiDeleteCmd = &cobra.Command{
+	Use:   "delete <conversation-id>",
+	Short: "Delete a Gemini conversation",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runGeminiDelete,
+}
+
 var geminiModelsCmd = &cobra.Command{
 	Use:   "models",
 	Short: "Show available Gemini models",
@@ -66,6 +74,7 @@ func init() {
 	geminiAskIncognitoCmd.Flags().StringVarP(&geminiModel, "model", "m", "", "Model (e.g. 'gemini-3-pro', 'gemini-3-flash', 'gemini-deep-research')")
 	geminiCmd.AddCommand(geminiAskIncognitoCmd)
 	geminiCmd.AddCommand(geminiListCmd)
+	geminiCmd.AddCommand(geminiDeleteCmd)
 	geminiCmd.AddCommand(geminiModelsCmd)
 	rootCmd.AddCommand(geminiCmd)
 }
@@ -165,4 +174,19 @@ func runGeminiList(cmd *cobra.Command, args []string) error {
 	})
 
 	return runList(cmd.Context(), p, 20)
+}
+
+func runGeminiDelete(cmd *cobra.Command, args []string) error {
+	p := geminipkg.New(
+		globalCfg.UserAgent,
+		providerTimeout(),
+	)
+
+	p.SetCookies(map[string]string{
+		"__Secure-1PSID":   globalCfg.Gemini.PSID,
+		"__Secure-1PSIDTS": globalCfg.Gemini.PSIDTS,
+		"__Secure-1PSIDCC": globalCfg.Gemini.PSIDCC,
+	})
+
+	return runDelete(cmd.Context(), p, args[0])
 }

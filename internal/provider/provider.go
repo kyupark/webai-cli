@@ -70,9 +70,18 @@ type ListOptions struct {
 	LogFunc func(format string, args ...any)
 }
 
+type DeleteOptions struct {
+	Verbose bool
+	LogFunc func(format string, args ...any)
+}
+
 // Lister is an optional interface for providers that support listing conversations.
 type Lister interface {
 	ListConversations(ctx context.Context, opts ListOptions) ([]Conversation, error)
+}
+
+type Deleter interface {
+	DeleteConversation(ctx context.Context, conversationID string, opts DeleteOptions) error
 }
 
 // ModelInfo describes a single model available from a provider.

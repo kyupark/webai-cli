@@ -23,8 +23,9 @@ const (
 	geminiAPIURL  = "https://gemini.google.com/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate"
 	defaultBL     = "boq_assistant-bard-web-server_20260128.03_p2"
 
-	batchExecURL = "https://gemini.google.com/_/BardChatUi/data/batchexecute"
-	rpcActivity  = "ESY5D"
+	batchExecURL          = "https://gemini.google.com/_/BardChatUi/data/batchexecute"
+	rpcActivity           = "ESY5D"
+	rpcDeleteConversation = "GzXR5e"
 
 	cookiePSID   = "__Secure-1PSID"
 	cookiePSIDTS = "__Secure-1PSIDTS"
@@ -530,6 +531,68 @@ func isLikelyText(text string) bool {
 func isRetryable(msg string) bool {
 	return strings.Contains(msg, "429") || strings.Contains(msg, "500") ||
 		strings.Contains(msg, "502") || strings.Contains(msg, "503")
+}
+
+func (p *Provider) DeleteConversation(ctx context.Context, conversationID string, opts provider.DeleteOptions) error {
+	if p.cookieHeader == "" {
+		return fmt.Errorf("no cookies — log in to gemini.google.com in your browser")
+	}
+
+	logf := opts.LogFunc
+	if logf == nil {
+		logf = func(string, ...any) {}
+	}
+
+	if p.snlm0e == "" {
+		if err := p.initialize(ctx, logf); err != nil {
+			return fmt.Errorf("initialize: %w", err)
+		}
+	}
+
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return fmt.Errorf("conversation ID is required")
+	}
+	if !strings.HasPrefix(conversationID, "c_") {
+		conversationID = "c_" + conversationID
+	}
+
+	innerPayload, _ := json.Marshal([]any{conversationID})
+	reqBody, _ := json.Marshal([]any{[]any{[]any{rpcDeleteConversation, string(innerPayload), nil, "generic"}}})
+
+	values := url.Values{}
+	values.Set("f.req", string(reqBody))
+	values.Set("at", p.snlm0e)
+
+	params := url.Values{}
+	params.Set("rpcids", rpcDeleteConversation)
+	params.Set("source-path", "/app")
+	params.Set("bl", p.bl)
+	params.Set("_reqid", strconv.Itoa(rand.Intn(900000)+100000))
+	params.Set("rt", "c")
+	reqURL := batchExecURL + "?" + params.Encode()
+
+	logf("[gemini] POST %s (rpc=%s)", batchExecURL, rpcDeleteConversation)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, strings.NewReader(values.Encode()))
+	if err != nil {
+		return err
+	}
+	p.setAPIHeaders(req)
+
+	resp, err := p.client().Do(req)
+	if err != nil {
+		return fmt.Errorf("delete request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return fmt.Errorf("delete conversation HTTP %s: %s", resp.Status, string(body))
+	}
+
+	logf("[gemini] conversation deleted")
+	return nil
 }
 
 // --- List conversations ---
