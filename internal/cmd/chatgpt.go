@@ -52,20 +52,17 @@ var chatgptListCmd = &cobra.Command{
 
 var chatgptModelsCmd = &cobra.Command{
 	Use:   "models",
-	Short: "Show available ChatGPT models",
+	Short: "Show available ChatGPT models (fetches from account if possible)",
 	Args:  cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		p := chatgptpkg.New("", "", "", providerTimeout())
-		return runModels(p)
-	},
+	RunE:  runChatGPTModels,
 }
 
 func init() {
-	chatgptCmd.Flags().StringVarP(&chatgptModel, "model", "m", "", "Model override (e.g. 'auto', 'gpt-5.2', 'gpt-5.2-thinking')")
+	chatgptCmd.Flags().StringVarP(&chatgptModel, "model", "m", "", "Model override (e.g. 'auto', 'gpt-5-2', 'gpt-5-2-thinking')")
 	chatgptCmd.Flags().StringVar(&chatgptEffort, "effort", "", "Thinking effort (none, low, medium, high, xhigh)")
 	chatgptCmd.Flags().BoolVarP(&chatgptResume, "resume", "r", false, "Resume last conversation")
 	chatgptCmd.Flags().StringVar(&chatgptConversation, "conversation", "", "Continue a specific conversation by ID")
-	chatgptAskIncognitoCmd.Flags().StringVarP(&chatgptModel, "model", "m", "", "Model override (e.g. 'auto', 'gpt-5.2', 'gpt-5.2-thinking')")
+	chatgptAskIncognitoCmd.Flags().StringVarP(&chatgptModel, "model", "m", "", "Model override (e.g. 'auto', 'gpt-5-2', 'gpt-5-2-thinking')")
 	chatgptAskIncognitoCmd.Flags().StringVar(&chatgptEffort, "effort", "", "Thinking effort (none, low, medium, high, xhigh)")
 	chatgptCmd.AddCommand(chatgptAskIncognitoCmd)
 	chatgptCmd.AddCommand(chatgptListCmd)
@@ -181,4 +178,44 @@ func runChatGPTList(cmd *cobra.Command, args []string) error {
 	})
 
 	return runList(cmd.Context(), p, 20)
+}
+
+func runChatGPTModels(cmd *cobra.Command, args []string) error {
+	p := chatgptpkg.New(
+		globalCfg.ChatGPT.BaseURL,
+		"",
+		globalCfg.UserAgent,
+		providerTimeout(),
+	)
+	p.SetCookies(map[string]string{
+		"__Secure-next-auth.session-token": globalCfg.ChatGPT.SessionToken,
+		"cf_clearance":                     globalCfg.ChatGPT.CfClearance,
+		"_puid":                            globalCfg.ChatGPT.PUID,
+	})
+	autoLoadCookies(cmd.Context(), p)
+
+	var logf func(string, ...any)
+	if globalCfg.Verbose {
+		logf = func(format string, args ...any) {
+			fmt.Fprintf(os.Stderr, format+"\n", args...)
+		}
+	}
+
+	models, err := p.FetchAvailableModels(cmd.Context(), logf)
+	if err == nil && len(models) > 0 {
+		fmt.Println("CHATGPT — Available Models (from account)")
+		fmt.Println(strings.Repeat("─", 60))
+		for _, m := range models {
+			fmt.Printf("  %-30s %s\n", m.ID, m.Name)
+		}
+		fmt.Println()
+		return nil
+	}
+
+	if err != nil && globalCfg.Verbose {
+		fmt.Fprintf(os.Stderr, "[chatgpt] dynamic model fetch failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "[chatgpt] falling back to built-in catalog\n")
+	}
+
+	return runModels(p)
 }

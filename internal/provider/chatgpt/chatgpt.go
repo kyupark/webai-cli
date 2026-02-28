@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/kyupark/ask/internal/httpclient"
 	"github.com/kyupark/ask/internal/provider"
@@ -20,8 +21,10 @@ import (
 
 const (
 	defaultBaseURL   = "https://chatgpt.com"
+	defaultModel     = "gpt-5-2"
 	sessionPath      = "/api/auth/session"
 	conversationPath = "/backend-api/conversation"
+	modelsPath       = "/backend-api/models"
 
 	cookieSessionToken = "__Secure-next-auth.session-token"
 	cookieCfClearance  = "cf_clearance"
@@ -124,7 +127,7 @@ func New(baseURL, model, userAgent string, timeout time.Duration) *Provider {
 		baseURL = defaultBaseURL
 	}
 	if model == "" {
-		model = "auto"
+		model = defaultModel
 	}
 	return &Provider{
 		baseURL:   baseURL,
@@ -179,12 +182,20 @@ func (p *Provider) Ask(ctx context.Context, query string, opts provider.AskOptio
 		logf("[chatgpt] sentinel failed: %v (proceeding without)", err)
 		// Non-fatal: try the request anyway; some sessions may not require it.
 	}
-	model := p.model
-	if opts.Model != "" {
-		model = opts.Model
+	requestedModel := strings.TrimSpace(p.model)
+	if requestedModel == "" {
+		requestedModel = defaultModel
 	}
+	if opts.Model != "" {
+		requestedModel = strings.TrimSpace(opts.Model)
+	}
+	modelCandidates := buildChatGPTModelCandidates(requestedModel)
+	if len(modelCandidates) == 0 {
+		modelCandidates = []string{defaultModel}
+	}
+
 	tsl, _ := rand.Int(rand.Reader, big.NewInt(481))
-	reqBody := conversationRequest{
+	baseReqBody := conversationRequest{
 		Action: "next",
 		Messages: []message{
 			{
@@ -203,7 +214,7 @@ func (p *Provider) Ask(ctx context.Context, query string, opts provider.AskOptio
 			},
 		},
 		ParentMessageID:            newUUID(),
-		Model:                      model,
+		Model:                      requestedModel,
 		TimezoneOffsetMin:          -480,
 		Timezone:                   "America/Los_Angeles",
 		HistoryAndTrainingDisabled: opts.Temporary,
@@ -224,55 +235,94 @@ func (p *Provider) Ask(ctx context.Context, query string, opts provider.AskOptio
 		ParagenCotSummaryDisplayOverride: "allow",
 	}
 	if opts.ConversationID != "" {
-		reqBody.ConversationID = opts.ConversationID
-		reqBody.ParentMessageID = opts.ParentMessageID
+		baseReqBody.ConversationID = opts.ConversationID
+		baseReqBody.ParentMessageID = opts.ParentMessageID
 	}
 	// Apply thinking effort if set.
 	if p.thinkingEffort != "" {
-		reqBody.ThinkingEffort = p.thinkingEffort
-	}
-	payload, err := json.Marshal(reqBody)
-	if err != nil {
-		return fmt.Errorf("marshalling request: %w", err)
+		baseReqBody.ThinkingEffort = p.thinkingEffort
 	}
 	url := p.baseURL + conversationPath
-	logf("[chatgpt] POST %s (model=%s)", url, model)
-	logf("[chatgpt] request body: %s", string(payload))
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
-	if err != nil {
-		return fmt.Errorf("creating request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("User-Agent", p.userAgent)
-	req.Header.Set("Accept", "text/event-stream")
-	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
-	req.Header.Set("OAI-Device-Id", p.deviceID)
-	req.Header.Set("OAI-Language", "en-US")
-	req.Header.Set("Origin", "https://chatgpt.com")
-	req.Header.Set("Referer", "https://chatgpt.com/")
-
-	// Attach sentinel headers if we obtained them.
-	if sentinel != nil {
-		req.Header.Set("Openai-Sentinel-Chat-Requirements-Token", sentinel.ChatToken)
-		if sentinel.ProofToken != "" {
-			req.Header.Set("Openai-Sentinel-Proof-Token", sentinel.ProofToken)
-		}
-	}
-
-	p.setCookies(req)
-
 	client := httpclient.New(p.timeout)
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
+	var lastErr error
+
+	for i, candidate := range modelCandidates {
+		reqBody := baseReqBody
+		reqBody.Model = candidate
+
+		payload, err := json.Marshal(reqBody)
+		if err != nil {
+			return fmt.Errorf("marshalling request: %w", err)
+		}
+		logf("[chatgpt] POST %s (model=%s)", url, candidate)
+		logf("[chatgpt] request body: %s", string(payload))
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
+		if err != nil {
+			return fmt.Errorf("creating request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("User-Agent", p.userAgent)
+		req.Header.Set("Accept", "text/event-stream")
+		req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+		req.Header.Set("OAI-Device-Id", p.deviceID)
+		req.Header.Set("OAI-Language", "en-US")
+		req.Header.Set("Origin", "https://chatgpt.com")
+		req.Header.Set("Referer", "https://chatgpt.com/")
+
+		if sentinel != nil {
+			req.Header.Set("Openai-Sentinel-Chat-Requirements-Token", sentinel.ChatToken)
+			if sentinel.ProofToken != "" {
+				req.Header.Set("Openai-Sentinel-Proof-Token", sentinel.ProofToken)
+			}
+		}
+
+		p.setCookies(req)
+
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("request failed: %w", err)
+			if i < len(modelCandidates)-1 {
+				logf("[chatgpt] retrying with fallback model after request error: %v", err)
+				continue
+			}
+			return lastErr
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+			_ = resp.Body.Close()
+			lastErr = fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+			if i < len(modelCandidates)-1 && isModelFallbackError(resp.StatusCode, string(body)) {
+				logf("[chatgpt] model %q rejected, trying fallback model", candidate)
+				continue
+			}
+			return lastErr
+		}
+
+		streamMeta, readErr := p.readStream(resp.Body, opts, candidate)
+		_ = resp.Body.Close()
+		if readErr != nil {
+			lastErr = readErr
+			if i < len(modelCandidates)-1 && errors.Is(readErr, errModelFallbackNeeded) {
+				logf("[chatgpt] model %q denied by stream metadata, trying fallback model", candidate)
+				continue
+			}
+			return readErr
+		}
+
+		if streamMeta.resolvedModel != "" && streamMeta.resolvedModel != candidate {
+			logf("[chatgpt] requested model=%s, resolved model=%s", candidate, streamMeta.resolvedModel)
+		}
+
+		return nil
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+
+	if lastErr != nil {
+		return lastErr
 	}
-	return p.readStream(resp.Body, opts)
+	return fmt.Errorf("chatgpt request failed with no successful model candidate")
 }
 
 func (p *Provider) getAccessToken(ctx context.Context, logf func(string, ...any)) (string, error) {
@@ -355,13 +405,20 @@ func (p *Provider) setCookies(req *http.Request) {
 	}
 }
 
-func (p *Provider) readStream(r io.Reader, opts provider.AskOptions) error {
+var errModelFallbackNeeded = errors.New("chatgpt stream indicates model fallback needed")
+
+type streamMetadata struct {
+	resolvedModel string
+}
+
+func (p *Provider) readStream(r io.Reader, opts provider.AskOptions, requestedModel string) (streamMetadata, error) {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
 	var fullText string
 	var lastConversationID string
 	var lastMessageID string
+	meta := streamMetadata{}
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -379,6 +436,19 @@ func (p *Provider) readStream(r io.Reader, opts provider.AskOptions) error {
 				opts.OnDone()
 			}
 			break
+		}
+
+		var raw map[string]any
+		if err := json.Unmarshal([]byte(data), &raw); err == nil {
+			if v, ok := findStringByKey(raw, "resolved_model_slug"); ok && v != "" {
+				meta.resolvedModel = v
+			}
+			if v, ok := findStringByKey(raw, "model_slug"); ok && v != "" && meta.resolvedModel == "" {
+				meta.resolvedModel = v
+			}
+			if hasModelSwitcherDeny(raw) && fullText == "" {
+				return meta, errModelFallbackNeeded
+			}
 		}
 
 		var frame conversationResponse
@@ -410,14 +480,102 @@ func (p *Provider) readStream(r io.Reader, opts provider.AskOptions) error {
 	}
 
 	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("reading stream: %w", err)
+		return meta, fmt.Errorf("reading stream: %w", err)
 	}
 
 	if opts.OnConversation != nil && (lastConversationID != "" || lastMessageID != "") {
 		opts.OnConversation(lastConversationID, lastMessageID, "")
 	}
 
-	return nil
+	if meta.resolvedModel == "" {
+		meta.resolvedModel = requestedModel
+	}
+
+	return meta, nil
+}
+
+func buildChatGPTModelCandidates(primary string) []string {
+	seen := map[string]struct{}{}
+	candidates := []string{}
+	for _, model := range []string{strings.TrimSpace(primary), defaultModel, "auto"} {
+		if model == "" {
+			continue
+		}
+		if _, ok := seen[model]; ok {
+			continue
+		}
+		seen[model] = struct{}{}
+		candidates = append(candidates, model)
+	}
+	return candidates
+}
+
+func isModelFallbackError(status int, body string) bool {
+	if status == http.StatusBadRequest || status == http.StatusForbidden || status == http.StatusNotFound {
+		lower := strings.ToLower(body)
+		return strings.Contains(lower, "model") ||
+			strings.Contains(lower, "unsupported") ||
+			strings.Contains(lower, "not available") ||
+			strings.Contains(lower, "model_switcher_deny")
+	}
+	return false
+}
+
+func findStringByKey(v any, key string) (string, bool) {
+	switch t := v.(type) {
+	case map[string]any:
+		if raw, ok := t[key]; ok {
+			if s, ok := raw.(string); ok {
+				return s, true
+			}
+		}
+		for _, child := range t {
+			if s, ok := findStringByKey(child, key); ok {
+				return s, true
+			}
+		}
+	case []any:
+		for _, child := range t {
+			if s, ok := findStringByKey(child, key); ok {
+				return s, true
+			}
+		}
+	}
+	return "", false
+}
+
+func hasModelSwitcherDeny(v any) bool {
+	switch t := v.(type) {
+	case map[string]any:
+		if raw, ok := t["model_switcher_deny"]; ok {
+			switch rv := raw.(type) {
+			case bool:
+				if rv {
+					return true
+				}
+			case string:
+				if strings.TrimSpace(rv) != "" {
+					return true
+				}
+			case []any:
+				if len(rv) > 0 {
+					return true
+				}
+			}
+		}
+		for _, child := range t {
+			if hasModelSwitcherDeny(child) {
+				return true
+			}
+		}
+	case []any:
+		for _, child := range t {
+			if hasModelSwitcherDeny(child) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func newUUID() string {
@@ -556,12 +714,11 @@ func (p *Provider) ListModels() provider.ProviderModels {
 		Provider: "chatgpt",
 		Models: []provider.ModelInfo{
 			{ID: "auto", Name: "Auto", Description: "Automatic model selection", Default: false, Tags: []string{"auto"}},
-			{ID: "gpt-5.2", Name: "GPT-5.2", Description: "Latest flagship model", Default: false, Tags: []string{"flagship"}},
-			{ID: "gpt-5.2-instant", Name: "GPT-5.2 Instant", Description: "Fast, no thinking", Default: false, Tags: []string{"fast"}},
-			{ID: "gpt-5.2-thinking", Name: "GPT-5.2 Thinking", Description: "With reasoning/thinking enabled", Default: true, Tags: []string{"reasoning"}},
-			{ID: "gpt-5-nano", Name: "GPT-5 Nano", Description: "Lightweight model", Default: false, Tags: []string{"fast", "lightweight"}},
-			{ID: "o3-mini", Name: "o3-mini", Description: "Reasoning model (standard)", Default: false, Tags: []string{"reasoning"}},
-			{ID: "o3-mini-high", Name: "o3-mini-high", Description: "Reasoning model (high effort)", Default: false, Tags: []string{"reasoning"}},
+			{ID: "gpt-5-2", Name: "GPT-5.2", Description: "Latest flagship model", Default: true, Tags: []string{"flagship"}},
+			{ID: "gpt-5-2-instant", Name: "GPT-5.2 Instant", Description: "Fast, no thinking", Default: false, Tags: []string{"fast"}},
+			{ID: "gpt-5-2-thinking", Name: "GPT-5.2 Thinking", Description: "With reasoning/thinking", Default: false, Tags: []string{"reasoning"}},
+			{ID: "gpt-5-2-pro", Name: "GPT-5.2 Pro", Description: "Research-grade intelligence (Pro/Business)", Default: false, Tags: []string{"pro"}},
+			{ID: "gpt-5-t-mini", Name: "GPT-5 Thinking Mini", Description: "Lightweight thinking model", Default: false, Tags: []string{"fast", "reasoning"}},
 		},
 		Modes: []provider.ModeInfo{
 			{ID: "none", Name: "None", Description: "No thinking", Default: false},
@@ -571,4 +728,69 @@ func (p *Provider) ListModels() provider.ProviderModels {
 			{ID: "xhigh", Name: "Extra High", Description: "Heavy reasoning effort", Default: true},
 		},
 	}
+}
+
+// --- Dynamic model detection ---
+
+type backendModelsResponse struct {
+	Models []backendModel `json:"models"`
+}
+
+type backendModel struct {
+	Slug      string `json:"slug"`
+	Title     string `json:"title"`
+	MaxTokens int    `json:"max_tokens"`
+	IsSpecial bool   `json:"is_special"`
+}
+
+// FetchAvailableModels calls /backend-api/models to get the account's available models.
+func (p *Provider) FetchAvailableModels(ctx context.Context, logf func(string, ...any)) ([]provider.ModelInfo, error) {
+	if logf == nil {
+		logf = func(string, ...any) {}
+	}
+	token, err := p.getAccessToken(ctx, logf)
+	if err != nil {
+		return nil, fmt.Errorf("auth: %w", err)
+	}
+
+	u := p.baseURL + modelsPath + "?history_and_training_disabled=false"
+	logf("[chatgpt] GET %s", u)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("User-Agent", p.userAgent)
+	req.Header.Set("Accept", "application/json")
+	p.setCookies(req)
+
+	client := httpclient.New(p.timeout)
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	var data backendModelsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, fmt.Errorf("decoding response: %w", err)
+	}
+
+	models := make([]provider.ModelInfo, 0, len(data.Models))
+	for _, m := range data.Models {
+		models = append(models, provider.ModelInfo{
+			ID:   m.Slug,
+			Name: m.Title,
+			Tags: []string{},
+		})
+	}
+
+	logf("[chatgpt] fetched %d models from account", len(models))
+	return models, nil
 }

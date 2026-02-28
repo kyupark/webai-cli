@@ -77,7 +77,7 @@ type Lister interface {
 
 // ModelInfo describes a single model available from a provider.
 type ModelInfo struct {
-	ID          string   // API identifier (e.g. "gpt-5.2", "claude-opus-4-6")
+	ID          string   // API identifier (e.g. "gpt-5-2", "claude-opus-4-6")
 	Name        string   // Human-friendly name (e.g. "GPT-5.2")
 	Description string   // Short description
 	Default     bool     // Whether this is the default model
