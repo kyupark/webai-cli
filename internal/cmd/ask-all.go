@@ -227,7 +227,7 @@ func askAllChatGPTModel() string {
 	if model := strings.TrimSpace(globalCfg.ChatGPT.Model); model != "" {
 		return model
 	}
-	return "gpt-5.2-thinking"
+	return "gpt-5-2"
 }
 
 func askAllClaudeModel() string {

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/kyupark/ask/internal/httpclient"
 	"github.com/kyupark/ask/internal/provider"
 	"io"
 	"net/http"
@@ -252,10 +253,7 @@ func (p *Provider) doRequest(ctx context.Context, method, reqURL string, body io
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
-	client := &http.Client{}
-	if p.timeout > 0 {
-		client.Timeout = p.timeout
-	}
+	client := httpclient.New(p.timeout)
 	return client.Do(req)
 }
 
