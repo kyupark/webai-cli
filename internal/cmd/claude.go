@@ -26,6 +26,7 @@ var claudeCmd = &cobra.Command{
   <question>      Ask a question (saves to history)
   ask-incognito  Ask a question (no history)
   list           List recent conversations
+	delete         Delete a conversation by ID
 	models         Show available models and modes`,
 	Args: cobra.ArbitraryArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -50,6 +51,13 @@ var claudeListCmd = &cobra.Command{
 	RunE:  runClaudeList,
 }
 
+var claudeDeleteCmd = &cobra.Command{
+	Use:   "delete <conversation-id>",
+	Short: "Delete a Claude conversation",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runClaudeDelete,
+}
+
 var claudeModelsCmd = &cobra.Command{
 	Use:   "models",
 	Short: "Show available Claude models and modes",
@@ -69,6 +77,7 @@ func init() {
 	claudeAskIncognitoCmd.Flags().StringVar(&claudeThinkingEffort, "effort", "", "Thinking effort (low, medium, high, max)")
 	claudeCmd.AddCommand(claudeAskIncognitoCmd)
 	claudeCmd.AddCommand(claudeListCmd)
+	claudeCmd.AddCommand(claudeDeleteCmd)
 	claudeCmd.AddCommand(claudeModelsCmd)
 	rootCmd.AddCommand(claudeCmd)
 }
@@ -176,4 +185,19 @@ func runClaudeList(cmd *cobra.Command, args []string) error {
 	})
 
 	return runList(cmd.Context(), p, 20)
+}
+
+func runClaudeDelete(cmd *cobra.Command, args []string) error {
+	p := claudepkg.New(
+		globalCfg.Claude.BaseURL,
+		"",
+		globalCfg.UserAgent,
+		providerTimeout(),
+	)
+
+	p.SetCookies(map[string]string{
+		"sessionKey": globalCfg.Claude.SessionKey,
+	})
+
+	return runDelete(cmd.Context(), p, args[0])
 }

@@ -172,7 +172,7 @@ func (p *Provider) Ask(ctx context.Context, query string, opts provider.AskOptio
 	// 2. Create a new conversation, unless continuing an existing one.
 	convID := opts.ConversationID
 	if convID == "" {
-		convID, err = p.createConversation(ctx, orgID, model, logf)
+		convID, err = p.createConversation(ctx, orgID, model, query, logf)
 		if err != nil {
 			return fmt.Errorf("creating conversation: %w", err)
 		}
@@ -198,6 +198,27 @@ func (p *Provider) Ask(ctx context.Context, query string, opts provider.AskOptio
 	}
 
 	return err
+}
+
+func (p *Provider) DeleteConversation(ctx context.Context, conversationID string, opts provider.DeleteOptions) error {
+	if strings.TrimSpace(conversationID) == "" {
+		return fmt.Errorf("conversation ID is required")
+	}
+	if p.sessionKey == "" {
+		return fmt.Errorf("no session cookie — log in to claude.ai in your browser")
+	}
+
+	logf := opts.LogFunc
+	if logf == nil {
+		logf = func(string, ...any) {}
+	}
+
+	orgID, err := p.getOrgID(ctx, logf)
+	if err != nil {
+		return fmt.Errorf("getting org ID: %w", err)
+	}
+
+	return p.deleteConversation(ctx, orgID, conversationID, logf)
 }
 
 // ListConversations fetches the user's recent Claude conversations.
@@ -319,14 +340,14 @@ func (p *Provider) getOrgID(ctx context.Context, logf func(string, ...any)) (str
 	return p.orgID, nil
 }
 
-func (p *Provider) createConversation(ctx context.Context, orgID, model string, logf func(string, ...any)) (string, error) {
+func (p *Provider) createConversation(ctx context.Context, orgID, model, query string, logf func(string, ...any)) (string, error) {
 	url := fmt.Sprintf(p.baseURL+conversationPath, orgID)
 	logf("[claude] POST %s (model=%s)", url, model)
 
 	reqBody := conversationRequest{
 		Model:                          model,
 		UUID:                           newUUID(),
-		Name:                           "",
+		Name:                           conversationTitle(query),
 		IncludeConversationPreferences: true,
 		PaprikaMode:                    "extended",
 	}
@@ -363,6 +384,19 @@ func (p *Provider) createConversation(ctx context.Context, orgID, model string, 
 	}
 
 	return conv.UUID, nil
+}
+
+func conversationTitle(query string) string {
+	title := strings.Join(strings.Fields(strings.TrimSpace(query)), " ")
+	if title == "" {
+		return "New chat"
+	}
+	const maxRunes = 120
+	r := []rune(title)
+	if len(r) <= maxRunes {
+		return title
+	}
+	return string(r[:maxRunes]) + "..."
 }
 
 func (p *Provider) getLatestParentMessageID(ctx context.Context, orgID, convID string, logf func(string, ...any)) (string, error) {
