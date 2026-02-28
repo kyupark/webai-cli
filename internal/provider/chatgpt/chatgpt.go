@@ -22,6 +22,7 @@ import (
 const (
 	defaultBaseURL   = "https://chatgpt.com"
 	defaultModel     = "gpt-5-2"
+	defaultEffort    = "xhigh"
 	sessionPath      = "/api/auth/session"
 	conversationPath = "/backend-api/conversation"
 	modelsPath       = "/backend-api/models"
@@ -238,10 +239,6 @@ func (p *Provider) Ask(ctx context.Context, query string, opts provider.AskOptio
 		baseReqBody.ConversationID = opts.ConversationID
 		baseReqBody.ParentMessageID = opts.ParentMessageID
 	}
-	// Apply thinking effort if set.
-	if p.thinkingEffort != "" {
-		baseReqBody.ThinkingEffort = p.thinkingEffort
-	}
 	url := p.baseURL + conversationPath
 	client := httpclient.New(p.timeout)
 	var lastErr error
@@ -249,6 +246,16 @@ func (p *Provider) Ask(ctx context.Context, query string, opts provider.AskOptio
 	for i, candidate := range modelCandidates {
 		reqBody := baseReqBody
 		reqBody.Model = candidate
+		effort := strings.TrimSpace(p.thinkingEffort)
+		if isThinkingModel(candidate) {
+			if effort == "" {
+				effort = defaultEffort
+				logf("[chatgpt] defaulting thinking_effort=%s for thinking model=%s", defaultEffort, candidate)
+			}
+			reqBody.ThinkingEffort = effort
+		} else if effort != "" {
+			logf("[chatgpt] skipping thinking_effort for non-thinking model=%s", candidate)
+		}
 
 		payload, err := json.Marshal(reqBody)
 		if err != nil {
@@ -510,6 +517,10 @@ func buildChatGPTModelCandidates(primary string) []string {
 	return candidates
 }
 
+func isThinkingModel(model string) bool {
+	return strings.Contains(strings.ToLower(strings.TrimSpace(model)), "think")
+}
+
 func isModelFallbackError(status int, body string) bool {
 	if status == http.StatusBadRequest || status == http.StatusForbidden || status == http.StatusNotFound {
 		lower := strings.ToLower(body)
@@ -588,6 +599,61 @@ func newUUID() string {
 }
 
 // --- List conversations ---
+
+func (p *Provider) DeleteConversation(ctx context.Context, conversationID string, opts provider.DeleteOptions) error {
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return fmt.Errorf("conversation ID is required")
+	}
+	if p.sessionToken == "" {
+		return fmt.Errorf("no session cookie — log in to chatgpt.com in your browser")
+	}
+
+	logf := opts.LogFunc
+	if logf == nil {
+		logf = func(string, ...any) {}
+	}
+
+	token, err := p.getAccessToken(ctx, logf)
+	if err != nil {
+		return fmt.Errorf("auth: %w", err)
+	}
+
+	payload, err := json.Marshal(map[string]any{"is_visible": false})
+	if err != nil {
+		return fmt.Errorf("marshalling request: %w", err)
+	}
+
+	u := fmt.Sprintf("%s/backend-api/conversation/%s", p.baseURL, conversationID)
+	logf("[chatgpt] PATCH %s", u)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, u, bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("User-Agent", p.userAgent)
+	req.Header.Set("Origin", "https://chatgpt.com")
+	req.Header.Set("Referer", "https://chatgpt.com/")
+	p.setCookies(req)
+
+	client := httpclient.New(p.timeout)
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	logf("[chatgpt] conversation deleted")
+	return nil
+}
 
 const conversationsPath = "/backend-api/conversations"
 

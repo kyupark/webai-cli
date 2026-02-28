@@ -26,6 +26,7 @@ var chatgptCmd = &cobra.Command{
   <question>      Ask a question (saves to history)
   ask-incognito  Ask a question (no history)
   list           List recent conversations
+	delete         Delete a conversation by ID
 	models         Show available models`,
 	Args: cobra.ArbitraryArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -50,6 +51,13 @@ var chatgptListCmd = &cobra.Command{
 	RunE:  runChatGPTList,
 }
 
+var chatgptDeleteCmd = &cobra.Command{
+	Use:   "delete <conversation-id>",
+	Short: "Delete a ChatGPT conversation",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runChatGPTDelete,
+}
+
 var chatgptModelsCmd = &cobra.Command{
 	Use:   "models",
 	Short: "Show available ChatGPT models (fetches from account if possible)",
@@ -66,6 +74,7 @@ func init() {
 	chatgptAskIncognitoCmd.Flags().StringVar(&chatgptEffort, "effort", "", "Thinking effort (none, low, medium, high, xhigh)")
 	chatgptCmd.AddCommand(chatgptAskIncognitoCmd)
 	chatgptCmd.AddCommand(chatgptListCmd)
+	chatgptCmd.AddCommand(chatgptDeleteCmd)
 	chatgptCmd.AddCommand(chatgptModelsCmd)
 	rootCmd.AddCommand(chatgptCmd)
 }
@@ -73,9 +82,11 @@ func init() {
 func runChatGPTAsk(cmd *cobra.Command, args []string, temporary bool) error {
 	query := strings.Join(args, " ")
 
-	model := globalCfg.ChatGPT.Model
-	if chatgptModel != "" {
-		model = chatgptModel
+	model := strings.TrimSpace(globalCfg.ChatGPT.Model)
+	if explicitModel := strings.TrimSpace(chatgptModel); explicitModel != "" {
+		model = explicitModel
+	} else if model == "" || strings.EqualFold(model, "auto") {
+		model = "gpt-5-2-thinking"
 	}
 
 	p := chatgptpkg.New(
@@ -178,6 +189,23 @@ func runChatGPTList(cmd *cobra.Command, args []string) error {
 	})
 
 	return runList(cmd.Context(), p, 20)
+}
+
+func runChatGPTDelete(cmd *cobra.Command, args []string) error {
+	p := chatgptpkg.New(
+		globalCfg.ChatGPT.BaseURL,
+		"",
+		globalCfg.UserAgent,
+		providerTimeout(),
+	)
+
+	p.SetCookies(map[string]string{
+		"__Secure-next-auth.session-token": globalCfg.ChatGPT.SessionToken,
+		"cf_clearance":                     globalCfg.ChatGPT.CfClearance,
+		"_puid":                            globalCfg.ChatGPT.PUID,
+	})
+
+	return runDelete(cmd.Context(), p, args[0])
 }
 
 func runChatGPTModels(cmd *cobra.Command, args []string) error {
